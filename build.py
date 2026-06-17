@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Tent of Trials build orchestration script.
+
+Builds all modules in the Tent of Trials monorepo, generates encrypted
+diagnostic artifacts for bounty PR validation, and manages the overall
+build lifecycle across multiple languages and toolchains.
+"""
 
 import argparse
 import datetime
