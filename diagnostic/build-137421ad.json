@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-06-20T21:31:15.481556+00:00",
+  "commit": "137421ad",
+  "change_commit": "137421ad578e7d080d714f1aeca6aa1331341e8e",
+  "base_commit": "d5241a4f6e76cb0bda32639d1f254aa06f967cf7",
+  "diagnostic_logd": "diagnostic/build-137421ad.logd",
+  "diagnostic_logd_error": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "f7a896ad71390928e915",
+  "decrypt_command": "encryptly unpack diagnostic/build-137421ad.logd <outdir> --password f7a896ad71390928e915",
+  "total_modules": 3,
+  "passed": 3,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "frailbox-selftest-json-fixtures",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": "frailbox/build/frailbox_selftest",
+      "output": "make -C frailbox selftest-json-fixtures"
+    },
+    {
+      "name": "frailbox-selftest-json-success",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "make -s -C frailbox selftest-json produced parseable JSON"
+    },
+    {
+      "name": "frailbox-selftest-json-failure",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "failure fixture returns exit 1 and includes failure_reason"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-137421ad.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
