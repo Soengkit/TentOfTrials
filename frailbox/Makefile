@@ -35,9 +35,12 @@ distclean: clean
 	rm -rf *.o *.d
 
 test: $(TARGET)
-	./$(TARGET) --sandbox-type seccomp --memory-limit 64 --verbose
+	./$(TARGET) --self-test --self-test-format text
+
+test-selftest-json: $(TARGET)
+	./tests/test_selftest_json.sh ./$(TARGET)
 
 valgrind: $(TARGET)
 	valgrind --leak-check=full --show-leak-kinds=all ./$(TARGET)
 
-.PHONY: all clean distclean test valgrind
+.PHONY: all clean distclean test test-selftest-json valgrind
