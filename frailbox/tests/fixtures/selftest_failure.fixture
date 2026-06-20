@@ -1,0 +1,3 @@
+name=fixture_failure
+expect=fail
+reason=intentional failure fixture

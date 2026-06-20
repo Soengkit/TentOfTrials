@@ -286,6 +286,12 @@ Audit logs are retained for 365 days and include:
 3. Check database connectivity: `kubectl exec -n tent-production deploy/backend-api -- nc -zv postgresql 5432`
 4. Check resource limits: `kubectl describe pod -n tent-production -l app=backend-api`
 
+**Frailbox self-test JSON summary**
+1. Run the human-readable self-test fixture: `make -C frailbox selftest`.
+2. Emit a machine-readable summary for CI or operators: `make -s -C frailbox selftest-json`.
+3. Validate success and failure fixture coverage: `make -s -C frailbox selftest-json-fixtures`.
+4. JSON output includes each test name, `pass`/`fail` status, duration in milliseconds, and a failure reason when available. The self-test is deterministic and does not perform network access.
+
 **High latency**
 1. Check database query performance: `SELECT * FROM pg_stat_activity WHERE state = 'active'`
 2. Check connection pool utilization
