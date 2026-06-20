@@ -280,6 +280,20 @@ Audit logs are retained for 365 days and include:
 
 ### Common Issues
 
+**Frailbox logger rotation retention report**
+
+Use the lightweight fixture target before wiring new rotation policy callers
+into the legacy logger retention report helper:
+
+```sh
+make -C frailbox logger-retention-fixtures
+```
+
+The report is JSON metadata for rotation decisions. Each entry records the file
+name, size, optional mtime, retained/pruned decision, and retention reason. The
+helper never reads log contents and redacts secret-like metadata names before
+printing the report.
+
 **Service won't start**
 1. Check logs: `kubectl logs -n tent-production deployment/backend-api`
 2. Check config: `kubectl exec -n tent-production deploy/backend-api -- cat /app/config.yaml`

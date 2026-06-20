@@ -47,6 +47,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdint.h>
 
 #include "../include/logger.h" /* This header doesn't exist yet. TODO: Create it. */
 
@@ -312,8 +313,12 @@ static void ring_buffer_push(const char *message)
 {
     pthread_mutex_lock(&g_ring_buffer.ring_mutex);
 
-    strncpy(g_ring_buffer.entries[g_ring_buffer.head], message, MAX_LOG_LINE - 1);
-    g_ring_buffer.entries[g_ring_buffer.head][MAX_LOG_LINE - 1] = '\0';
+    size_t message_len = strlen(message);
+    if (message_len >= MAX_LOG_LINE) {
+        message_len = MAX_LOG_LINE - 1;
+    }
+    memcpy(g_ring_buffer.entries[g_ring_buffer.head], message, message_len);
+    g_ring_buffer.entries[g_ring_buffer.head][message_len] = '\0';
 
     g_ring_buffer.head = (g_ring_buffer.head + 1) % RING_BUFFER_SIZE;
     if (g_ring_buffer.count < RING_BUFFER_SIZE) {
@@ -323,6 +328,132 @@ static void ring_buffer_push(const char *message)
     }
 
     pthread_mutex_unlock(&g_ring_buffer.ring_mutex);
+}
+
+static const char *retention_decision_name(log_retention_decision_t decision)
+{
+    return decision == LOG_RETENTION_PRUNED ? "pruned" : "retained";
+}
+
+static void json_write_string(FILE *out, const char *value)
+{
+    const unsigned char *p = (const unsigned char *)(value != NULL ? value : "");
+    fputc('"', out);
+    while (*p != '\0') {
+        switch (*p) {
+            case '"':
+                fputs("\\\"", out);
+                break;
+            case '\\':
+                fputs("\\\\", out);
+                break;
+            case '\b':
+                fputs("\\b", out);
+                break;
+            case '\f':
+                fputs("\\f", out);
+                break;
+            case '\n':
+                fputs("\\n", out);
+                break;
+            case '\r':
+                fputs("\\r", out);
+                break;
+            case '\t':
+                fputs("\\t", out);
+                break;
+            default:
+                if (*p < 0x20) {
+                    fprintf(out, "\\u%04x", (unsigned int)*p);
+                } else {
+                    fputc((int)*p, out);
+                }
+                break;
+        }
+        p++;
+    }
+    fputc('"', out);
+}
+
+static int is_secret_like_name(const char *value)
+{
+    const char *needles[] = {
+        "secret", "password", "passwd", "token", "authorization",
+        "apikey", "api_key", "credential", "private_key"
+    };
+
+    if (value == NULL) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < sizeof(needles) / sizeof(needles[0]); i++) {
+        if (strcasestr(value, needles[i]) != NULL) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void json_write_metadata_string(FILE *out, const char *value)
+{
+    if (is_secret_like_name(value)) {
+        json_write_string(out, "[REDACTED]");
+    } else {
+        json_write_string(out, value);
+    }
+}
+
+int log_write_retention_report(FILE *out,
+                               const log_retention_entry_t *entries,
+                               size_t count)
+{
+    if (out == NULL || (count > 0 && entries == NULL)) {
+        return -1;
+    }
+
+    int retained = 0;
+    int pruned = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (entries[i].decision == LOG_RETENTION_PRUNED) {
+            pruned++;
+        } else {
+            retained++;
+        }
+    }
+
+    fputs("{\n", out);
+    fprintf(out, "  \"total\": %zu,\n", count);
+    fprintf(out, "  \"retained\": %d,\n", retained);
+    fprintf(out, "  \"pruned\": %d,\n", pruned);
+    fputs("  \"files\": [\n", out);
+
+    for (size_t i = 0; i < count; i++) {
+        const log_retention_entry_t *entry = &entries[i];
+        fputs("    {", out);
+        fputs("\"file_name\": ", out);
+        json_write_metadata_string(out, entry->file_name);
+        fprintf(out, ", \"size_bytes\": %llu",
+                (unsigned long long)entry->size_bytes);
+        if (entry->has_mtime) {
+            fprintf(out, ", \"mtime\": %lld", (long long)entry->mtime);
+        } else {
+            fputs(", \"mtime\": null", out);
+        }
+        fputs(", \"decision\": ", out);
+        json_write_string(out, retention_decision_name(entry->decision));
+        fputs(", \"reason\": ", out);
+        json_write_metadata_string(out, entry->reason);
+        fputs("}", out);
+        if (i + 1 < count) {
+            fputc(',', out);
+        }
+        fputc('\n', out);
+    }
+
+    fputs("  ]\n", out);
+    fputs("}\n", out);
+
+    return ferror(out) ? -1 : 0;
 }
 
 /* ------------------------------------------------------------------ */

@@ -34,6 +34,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -306,6 +308,36 @@ int log_dump_ring_buffer(int fd);
  * @param len   Length of binary data in bytes
  */
 void log_hex_dump(const char *label, const unsigned char *data, size_t len);
+
+typedef enum {
+    LOG_RETENTION_RETAINED = 0,
+    LOG_RETENTION_PRUNED = 1
+} log_retention_decision_t;
+
+typedef struct {
+    const char *file_name;
+    uint64_t size_bytes;
+    time_t mtime;
+    int has_mtime;
+    log_retention_decision_t decision;
+    const char *reason;
+} log_retention_entry_t;
+
+/**
+ * Emit an audit-friendly JSON report for log rotation retention decisions.
+ *
+ * The report contains only metadata supplied by the rotation caller: file
+ * name, size, optional mtime, retained/pruned decision, and reason. It never
+ * reads log file contents, so secret-like log values are not exposed.
+ *
+ * @param out Output stream to receive the JSON report
+ * @param entries Retention decision entries
+ * @param count Number of entries
+ * @return 0 on success, -1 on invalid arguments or stream errors
+ */
+int log_write_retention_report(FILE *out,
+                               const log_retention_entry_t *entries,
+                               size_t count);
 
 /**
  * Log a failed assertion but do NOT abort.
