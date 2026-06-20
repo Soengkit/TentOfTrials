@@ -37,6 +37,29 @@ The health check returns a 200 OK response with a JSON body:
 }
 ```
 
+### Frailbox Self-Test Summary
+
+The frailbox runtime includes a deterministic, non-networked self-test mode for
+CI and operator checks. The default text output is intended for terminal use:
+
+```sh
+cd frailbox
+make test
+```
+
+CI jobs and automation can request a machine-readable JSON summary:
+
+```sh
+cd frailbox
+make test-selftest-json
+./frailbox --self-test --self-test-format json
+```
+
+The JSON payload includes a top-level `summary` object and a `tests` array. Each
+test entry contains `name`, `status`, and `duration_ms`; failed entries also
+include `failure_reason` when the failure source is known. A passing run exits
+with status 0, while any failed self-test exits non-zero.
+
 ### Prometheus Metrics
 
 Each service exposes Prometheus metrics at `/metrics` on the same port as the
