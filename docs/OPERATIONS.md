@@ -258,6 +258,28 @@ for seasonality or business cycles.
 
 Audit logs are retained for 365 days and include:
 
+### AI Diagnostics SARIF Summary
+
+The AI reviewer can emit a SARIF-style JSON summary for security-review and CI
+triage tools without changing the default human-readable output.
+
+Generate the normal review JSON and the SARIF summary together:
+
+```bash
+python3 tools/ai_reviewer.py \
+  --path tools \
+  --recursive \
+  --output diagnostic/ai-review.json \
+  --sarif-output diagnostic/ai-review.sarif.json
+```
+
+The SARIF summary includes rule IDs, severity levels, messages, file paths, and
+line numbers for each finding. Secret-looking values in messages, suggestions,
+and snippets are redacted before export, so reviewers can attach the summary to
+diagnostic bundles without exposing tokens or passwords. Files with no findings
+are represented in the invocation metadata through `reviewedFiles`; the `results`
+array only contains actual findings.
+
 - All authentication attempts
 - All configuration changes
 - All permission changes

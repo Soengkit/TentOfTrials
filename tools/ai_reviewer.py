@@ -102,6 +102,9 @@ DEFAULT_MAX_COMPLEXITY = 15
 DEFAULT_MAX_LINE_LENGTH = 100
 DEFAULT_MAX_FILE_LENGTH = 500
 DEFAULT_MAX_PARAMS = 5
+SECRET_VALUE_PATTERN = re.compile(
+    r"(?i)(api[_-]?key|api[_-]?secret|secret[_-]?key|password|credentials|token|bearer)\s*([:=]\s*)['\"]?([A-Za-z0-9_.\-]{8,})['\"]?"
+)
 
 # ---------------------------------------------------------------------------
 # Types
@@ -398,7 +401,7 @@ class SecurityAuditor:
             {
                 "id": "SEC-PATH-TRAVERSAL",
                 "name": "Path Traversal",
-                "severity": ReviewSeverity.HIGH,
+                "severity": ReviewSeverity.ERROR,
                 "pattern": r"(open|read|write|unlink|rmdir|Path::new)\s*\(\s*['\"](\.\./|/etc/|/var/)",
                 "message": "Possible path traversal vulnerability. Validate file paths.",
                 "effort": 20,
@@ -406,7 +409,7 @@ class SecurityAuditor:
             {
                 "id": "SEC-INSECURE-RANDOM",
                 "name": "Insecure Random Number Generator",
-                "severity": ReviewSeverity.HIGH,
+                "severity": ReviewSeverity.ERROR,
                 "pattern": r"(random\.randint|random\.choice|srand|rand\(\)|math\.random)",
                 "message": "Use cryptographically secure random generation for security-sensitive contexts.",
                 "effort": 10,
@@ -414,7 +417,7 @@ class SecurityAuditor:
             {
                 "id": "SEC-INSECURE-COOKIE",
                 "name": "Insecure Cookie Configuration",
-                "severity": ReviewSeverity.HIGH,
+                "severity": ReviewSeverity.ERROR,
                 "pattern": r"cookie\s*[\[=]\s*.*\b(httpOnly|secure|sameSite)\b\s*[=:]\s*(false|False|None)",
                 "message": "Insecure cookie configuration. Set HttpOnly, Secure, and SameSite attributes.",
                 "effort": 10,
@@ -422,7 +425,7 @@ class SecurityAuditor:
             {
                 "id": "SEC-XXE",
                 "name": "XML External Entity (XXE)",
-                "severity": ReviewSeverity.HIGH,
+                "severity": ReviewSeverity.ERROR,
                 "pattern": r"(xml\.etree|xml_parser|parse\(|SAXParser|DocumentBuilder)",
                 "message": "Possible XXE vulnerability. Disable external entity parsing.",
                 "effort": 20,
@@ -781,6 +784,114 @@ class AiCodeReviewer:
 
         return json_str
 
+    def generate_sarif_summary(self, report: ProjectReviewReport, output_path: Optional[Path] = None) -> str:
+        """Generate a SARIF-style JSON summary for AI diagnostics findings."""
+        data = build_sarif_summary(report)
+        json_str = json.dumps(data, indent=2, sort_keys=True)
+
+        if output_path:
+            output_path.write_text(json_str + "\n", encoding="utf-8")
+            self.logger.info(f"SARIF summary written to {output_path}")
+
+        return json_str
+
+
+def redact_secret_values(text: Optional[str]) -> Optional[str]:
+    """Redact secret-looking values while preserving useful diagnostic context."""
+    if text is None:
+        return None
+    return SECRET_VALUE_PATTERN.sub(lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]", text)
+
+
+def sarif_level_for_severity(severity: ReviewSeverity) -> str:
+    """Map internal review severity to the SARIF result level vocabulary."""
+    if severity in {ReviewSeverity.CRITICAL, ReviewSeverity.ERROR}:
+        return "error"
+    if severity == ReviewSeverity.WARNING:
+        return "warning"
+    if severity == ReviewSeverity.SUGGESTION:
+        return "note"
+    return "none"
+
+
+def build_sarif_summary(report: ProjectReviewReport) -> Dict[str, Any]:
+    """Build a SARIF-compatible summary object from a project review report."""
+    rules: Dict[str, Dict[str, Any]] = {}
+    results: List[Dict[str, Any]] = []
+
+    for file_result in report.file_results:
+        for finding in file_result.findings:
+            rule_id = finding.rules[0] if finding.rules else finding.id.split("-")[0]
+            rules.setdefault(
+                rule_id,
+                {
+                    "id": rule_id,
+                    "shortDescription": {"text": rule_id},
+                    "fullDescription": {"text": redact_secret_values(finding.message) or ""},
+                    "properties": {
+                        "category": finding.category.value,
+                        "severity": finding.severity.value,
+                    },
+                },
+            )
+
+            result: Dict[str, Any] = {
+                "ruleId": rule_id,
+                "level": sarif_level_for_severity(finding.severity),
+                "message": {"text": redact_secret_values(finding.message) or ""},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": finding.file_path},
+                            "region": {"startLine": max(1, finding.line_number)},
+                        }
+                    }
+                ],
+                "properties": {
+                    "findingId": finding.id,
+                    "severity": finding.severity.value,
+                    "category": finding.category.value,
+                },
+            }
+
+            if finding.column:
+                result["locations"][0]["physicalLocation"]["region"]["startColumn"] = finding.column
+            if finding.suggestion:
+                result["properties"]["suggestion"] = redact_secret_values(finding.suggestion)
+            if finding.code_snippet:
+                result["properties"]["snippet"] = redact_secret_values(finding.code_snippet)
+
+            results.append(result)
+
+    sarif = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "tent-ai-reviewer",
+                        "informationUri": "https://github.com/",
+                        "rules": list(rules.values()),
+                    }
+                },
+                "invocations": [
+                    {
+                        "executionSuccessful": True,
+                        "properties": {
+                            "timestamp": report.timestamp,
+                            "projectPath": report.project_path,
+                            "reviewedFiles": report.reviewed_files,
+                            "totalFindings": report.total_findings,
+                        },
+                    }
+                ],
+                "results": results,
+            }
+        ],
+    }
+    return sarif
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -795,6 +906,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", type=str, required=True, help="File or directory to review")
     parser.add_argument("--recursive", action="store_true", help="Review directories recursively")
     parser.add_argument("--output", type=str, default=None, help="Output JSON report path")
+    parser.add_argument("--sarif-output", type=str, default=None, help="Output SARIF-style JSON summary path")
     return parser
 
 
@@ -807,6 +919,20 @@ def main() -> int:
 
     if path.is_file():
         result = reviewer.review_file(path)
+        report = ProjectReviewReport(
+            timestamp=datetime.now().isoformat(),
+            project_path=str(path),
+            total_files=1,
+            reviewed_files=1,
+            total_findings=len(result.findings),
+            critical_findings=len([f for f in result.findings if f.severity == ReviewSeverity.CRITICAL]),
+            errors=len([f for f in result.findings if f.severity == ReviewSeverity.ERROR]),
+            warnings=len([f for f in result.findings if f.severity == ReviewSeverity.WARNING]),
+            info_findings=len([f for f in result.findings if f.severity == ReviewSeverity.INFO]),
+            suggestions=len([f for f in result.findings if f.severity == ReviewSeverity.SUGGESTION]),
+            file_results=[result],
+            summary=result.summary,
+        )
         print(f"\n{'='*60}")
         print(f"AI Code Review: {path}")
         print(f"{'='*60}")
@@ -835,6 +961,11 @@ def main() -> int:
                 print(f"     💡 {f.suggestion}")
         print()
 
+        if args.output:
+            reviewer.generate_report_json(report, Path(args.output))
+        if args.sarif_output:
+            reviewer.generate_sarif_summary(report, Path(args.sarif_output))
+
     elif path.is_dir():
         report = reviewer.review_directory(path, args.recursive)
         print(f"\n{'='*60}")
@@ -851,6 +982,8 @@ def main() -> int:
 
         if args.output:
             reviewer.generate_report_json(report, Path(args.output))
+        if args.sarif_output:
+            reviewer.generate_sarif_summary(report, Path(args.sarif_output))
 
     else:
         logger.error(f"Path not found: {path}")

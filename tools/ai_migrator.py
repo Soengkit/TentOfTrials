@@ -301,7 +301,7 @@ class PatternDetector:
             },
             {
                 "name": "Mutating Function Parameters",
-                "regex": r"(\b(def\s+\w+\([^)]*\b(\w+)\b[^)]*\)[^:]*:\s*\1\s*=)",
+                "regex": r"\bdef\s+\w+\([^)]*\b(\w+)\b[^)]*\)[^:]*:\s*\1\s*=",
                 "severity": PatternSeverity.MEDIUM,
                 "strategy": MigrationStrategy.REFACTOR,
                 "description": "Function parameter being mutated (use immutable patterns)",
