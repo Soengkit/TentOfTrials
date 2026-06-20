@@ -1,0 +1,74 @@
+﻿Frailbox checkpoint diagnostic evidence
+======================================
+generated_at: 2026-06-20T20:54:48.5296149Z
+change_commit: 6fbee95d0137c204cd56bf57162d9a16fe178d7c
+base_commit: d5241a4f6e76cb0bda32639d1f254aa06f967cf7
+issue: Soengkit/frailbox-checkpoint#6
+
+[syntax] $(@{label=syntax; command=perl -c v2/scripts/log_watchdog.pl; exit=0; output=wsl : v2/scripts/log_watchdog.pl syntax OK
+At line:11 char:3
++   wsl sh -lc "$cmd" *> $outFile
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (v2/scripts/log_watchdog.pl syntax OK:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+}.command) exit=0
+wsl : v2/scripts/log_watchdog.pl syntax OK
+At line:11 char:3
++   wsl sh -lc "$cmd" *> $outFile
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (v2/scripts/log_watchdog.pl syntax OK:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+[fixture-harness] $(@{label=fixture-harness; command=perl v2/scripts/test_log_watchdog_json_summary.pl; exit=0; output=log watchdog JSON summary fixture coverage passed
+}.command) exit=0
+log watchdog JSON summary fixture coverage passed
+
+[mixed-summary] $(@{label=mixed-summary; command=perl v2/scripts/log_watchdog.pl --json-summary v2/fixtures/log_watchdog_mixed.log; exit=2; output={
+   "empty_records" : 1,
+   "file" : "v2/fixtures/log_watchdog_mixed.log",
+   "malformed" : [
+      {
+         "error" : "malformed JSON string, neither array, object, number, string or atom, at character offset 0 (before \"plain text before js...\")",
+         "line" : 1
+      },
+      {
+         "error" : ", or } expected while parsing object/hash, at character offset 90 (before \"(end of string)\")",
+         "line" : 4
+      }
+   ],
+   "malformed_records" : 2,
+   "shapes" : {
+      "array" : 1,
+      "object" : 1
+   },
+   "total_records" : 4,
+   "valid_records" : 2
+}
+
+}.command) exit=2 (expected 2 when malformed records are present)
+{
+   "empty_records" : 1,
+   "file" : "v2/fixtures/log_watchdog_mixed.log",
+   "malformed" : [
+      {
+         "error" : "malformed JSON string, neither array, object, number, string or atom, at character offset 0 (before \"plain text before js...\")",
+         "line" : 1
+      },
+      {
+         "error" : ", or } expected while parsing object/hash, at character offset 90 (before \"(end of string)\")",
+         "line" : 4
+      }
+   ],
+   "malformed_records" : 2,
+   "shapes" : {
+      "array" : 1,
+      "object" : 1
+   },
+   "total_records" : 4,
+   "valid_records" : 2
+}
+
+
+[build.py] python3 build.py -m v2-market-stream was attempted; local run hung in diagnostic/encryptly setup and was stopped after timeout. Focused Perl fixture validation above passed; this file records the build.py blocker honestly.
