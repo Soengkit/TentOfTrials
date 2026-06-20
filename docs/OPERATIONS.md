@@ -280,6 +280,20 @@ Audit logs are retained for 365 days and include:
 
 ### Common Issues
 
+**Frailbox logger newline boundaries**
+
+Use the lightweight fixture target before changing `frailbox/src/logger.c` line
+formatting:
+
+```sh
+make -C frailbox logger-newline-fixtures
+```
+
+The fixture documents the legacy boundary contract: messages without a caller
+newline receive one logger record boundary, caller-supplied trailing newlines
+are preserved, and truncated records still end with a newline so the next
+record starts on its own line. The fixture uses synthetic marker values only.
+
 **Service won't start**
 1. Check logs: `kubectl logs -n tent-production deployment/backend-api`
 2. Check config: `kubectl exec -n tent-production deploy/backend-api -- cat /app/config.yaml`

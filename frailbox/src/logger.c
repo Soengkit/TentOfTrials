@@ -312,8 +312,12 @@ static void ring_buffer_push(const char *message)
 {
     pthread_mutex_lock(&g_ring_buffer.ring_mutex);
 
-    strncpy(g_ring_buffer.entries[g_ring_buffer.head], message, MAX_LOG_LINE - 1);
-    g_ring_buffer.entries[g_ring_buffer.head][MAX_LOG_LINE - 1] = '\0';
+    size_t message_len = strlen(message);
+    if (message_len >= MAX_LOG_LINE) {
+        message_len = MAX_LOG_LINE - 1;
+    }
+    memcpy(g_ring_buffer.entries[g_ring_buffer.head], message, message_len);
+    g_ring_buffer.entries[g_ring_buffer.head][message_len] = '\0';
 
     g_ring_buffer.head = (g_ring_buffer.head + 1) % RING_BUFFER_SIZE;
     if (g_ring_buffer.count < RING_BUFFER_SIZE) {
@@ -508,17 +512,21 @@ void log_message(int level, const char *file, int line, const char *fmt, ...)
     /* Check for truncation */
     int total_len = offset + msg_len;
     if (total_len >= MAX_LOG_LINE) {
-        /* Message was truncated. Add truncation indicator. */
+        /* Message was truncated. Add truncation indicator and keep the
+         * record newline-terminated so the next log entry starts cleanly. */
         const char trunc_msg[] = "... [TRUNCATED]";
         size_t trunc_len = sizeof(trunc_msg) - 1;
-        size_t copy_len = (size_t)(MAX_LOG_LINE - 1 - trunc_len);
+        size_t newline_pos = MAX_LOG_LINE - 2;
+        size_t copy_len = newline_pos - trunc_len;
         if (copy_len > (size_t)offset) {
             /* Copy truncation indicator after the partial message */
             memcpy(buffer + copy_len, trunc_msg, trunc_len);
-            buffer[MAX_LOG_LINE - 1] = '\0';
+            buffer[newline_pos] = '\n';
+            buffer[newline_pos + 1] = '\0';
         } else {
             /* Very short buffer - just truncate */
-            buffer[MAX_LOG_LINE - 1] = '\0';
+            buffer[newline_pos] = '\n';
+            buffer[newline_pos + 1] = '\0';
         }
     } else {
         buffer[total_len] = '\n';
