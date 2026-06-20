@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-06-20T21:49:09.430238+00:00",
+  "commit": "abef3d5c",
+  "change_commit": "abef3d5c658bd27a4b9d548cc210782a439e232e",
+  "base_commit": "d5241a4f6e76cb0bda32639d1f254aa06f967cf7",
+  "diagnostic_logd": "diagnostic/build-abef3d5c.logd",
+  "diagnostic_logd_error": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "f64da1c11d95e4375b49",
+  "decrypt_command": "encryptly unpack diagnostic/build-abef3d5c.logd <outdir> --password f64da1c11d95e4375b49",
+  "total_modules": 3,
+  "passed": 3,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "logger-newline-fixtures",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": "frailbox/build/logger_newline_boundary_fixture",
+      "output": "make -C frailbox clean logger-newline-fixtures"
+    },
+    {
+      "name": "frailbox-build",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": "frailbox/frailbox",
+      "output": "make -C frailbox all"
+    },
+    {
+      "name": "build-py-frailbox-attempt",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "python3 build.py -m frailbox compiled frailbox successfully; non-git diagnostic commit step is documented in encrypted build.log"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-abef3d5c.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
