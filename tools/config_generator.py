@@ -168,8 +168,25 @@ ENV_OVERRIDES: Dict[str, Dict[str, Any]] = {
 
 SENSITIVE_KEYS = [
     "database.password", "redis.password", "auth.jwt_secret",
-    "auth.jwt_secret", "auth.jwt_secret",
 ]
+
+REQUIRED_PRODUCTION_SECRET_KEYS = [
+    "database.password", "redis.password", "auth.jwt_secret",
+]
+
+PLACEHOLDER_SECRET_VALUES = {
+    "change-me",
+    "changeme",
+    "default",
+    "dummy",
+    "example",
+    "password",
+    "placeholder",
+    "replace-me",
+    "secret",
+    "test",
+    "todo",
+}
 
 
 def merge_config(base: Dict, override: Dict) -> Dict:
@@ -189,6 +206,50 @@ def generate_config(env: str, overrides: Optional[Dict] = None) -> Dict:
     if overrides:
         config = merge_config(config, overrides)
     return config
+
+
+def get_nested(config: Dict, dotted_key: str) -> Any:
+    current: Any = config
+    for part in dotted_key.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def is_placeholder_secret(value: Any) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+
+    normalized = value.strip().lower()
+    if not normalized:
+        return True
+    if normalized in PLACEHOLDER_SECRET_VALUES:
+        return True
+    if normalized.startswith(("your-", "your_", "replace_", "replace-")):
+        return True
+    if normalized.startswith("<") and normalized.endswith(">"):
+        return True
+    return False
+
+
+def validate_production_secrets(config: Dict) -> List[str]:
+    failures = []
+    for key in REQUIRED_PRODUCTION_SECRET_KEYS:
+        value = get_nested(config, key)
+        if is_placeholder_secret(value):
+            failures.append(key)
+    return failures
+
+
+def load_override_json(path: str) -> Dict:
+    with open(path, "r", encoding="utf-8") as f:
+        overrides = json.load(f)
+    if not isinstance(overrides, dict):
+        raise ValueError("override JSON must contain an object at the top level")
+    return overrides
 
 
 def mask_sensitive(config: Dict, prefix: str = "") -> Dict:
@@ -309,6 +370,8 @@ def parse_args():
                        choices=["yaml", "json", "toml", "dotenv", "k8s-configmap"],
                        help="Output format")
     parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--override-json",
+                       help="JSON object containing config overrides")
     parser.add_argument("--show-sensitive", action="store_true",
                        help="Show sensitive values (default: masked)")
     parser.add_argument("--stdout", action="store_true",
@@ -318,7 +381,21 @@ def parse_args():
 
 def main():
     args = parse_args()
-    config = generate_config(args.env)
+    try:
+        overrides = load_override_json(args.override_json) if args.override_json else None
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"Invalid override JSON: {exc}", file=sys.stderr)
+        return 1
+
+    config = generate_config(args.env, overrides)
+
+    if args.env == "production":
+        missing = validate_production_secrets(config)
+        if missing:
+            print("Production configuration rejected: required secret values are missing or placeholder-like.", file=sys.stderr)
+            for key in missing:
+                print(f"  - {key}", file=sys.stderr)
+            return 1
 
     if not args.show_sensitive:
         display_config = mask_sensitive(config)
@@ -350,4 +427,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

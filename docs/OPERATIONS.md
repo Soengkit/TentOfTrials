@@ -286,6 +286,13 @@ Audit logs are retained for 365 days and include:
 3. Check database connectivity: `kubectl exec -n tent-production deploy/backend-api -- nc -zv postgresql 5432`
 4. Check resource limits: `kubectl describe pod -n tent-production -l app=backend-api`
 
+**Production config secret validation**
+1. Production config generation rejects empty or placeholder-like `database.password`, `redis.password`, and `auth.jwt_secret` values.
+2. Provide real values through an override file before generating production output:
+   `python3 tools/config_generator.py --env production --format json --override-json tools/fixtures/config_secrets_valid.json`
+3. Validation errors list only the missing key names and never print the secret values.
+4. Non-production config generation remains compatible and does not require secret overrides.
+
 **High latency**
 1. Check database query performance: `SELECT * FROM pg_stat_activity WHERE state = 'active'`
 2. Check connection pool utilization
