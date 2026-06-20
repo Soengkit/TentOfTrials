@@ -47,7 +47,6 @@ use v5.32;
 
 use Cwd 'abs_path';
 use Data::Dumper;
-use File::Tail;
 use Getopt::Long;
 use HTTP::Tiny;
 use IO::Socket::INET;
@@ -66,6 +65,8 @@ use constant {
     HEARTBEAT_FILE => '/tmp/v2-watchdog-heartbeat',
     PID_FILE       => '/tmp/v2-watchdog.pid',
     MAX_LINE_LEN   => 8192,  # lines longer than this get truncated before regex. mostly.
+    MAGIC_NUMBER_47 => 47,
+    EXIT_MALFORMED_JSON => 2,
 };
 
 # ===─ Goddamn Global State ==============================================================================
@@ -85,6 +86,7 @@ my $alert_count = 0;
 my %error_counts = ();
 my %last_alert_time = ();
 my $start_time   = time();
+my $tail_module_loaded = 0;
 
 # Regex patterns for error detection.
 # Each pattern has: name, regex, severity, cooldown_seconds
@@ -133,6 +135,88 @@ sub log_msg {
     my ($level, $msg) = @_;
     my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime);
     say "[$ts] [$level] [Watchdog] $msg";
+}
+
+sub ensure_tail_module {
+    return if $tail_module_loaded;
+    eval {
+        require File::Tail;
+        File::Tail->import();
+        1;
+    } or die "File::Tail is required for daemon/watch mode: $@\n";
+    $tail_module_loaded = 1;
+}
+
+sub json_value_shape {
+    my ($value) = @_;
+    return 'null' if !defined $value;
+    my $ref = ref $value;
+    return 'object' if $ref eq 'HASH';
+    return 'array' if $ref eq 'ARRAY';
+    return 'boolean' if JSON::PP::is_bool($value);
+    return 'number' if !$ref && $value =~ /\A-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/;
+    return 'string';
+}
+
+sub summarize_json_log_file {
+    my ($file) = @_;
+
+    open(my $fh, '<', $file) or die "Cannot read JSON fixture $file: $!\n";
+
+    my $decoder = JSON::PP->new->allow_nonref;
+    my %summary = (
+        file => $file,
+        total_records => 0,
+        valid_records => 0,
+        malformed_records => 0,
+        empty_records => 0,
+        malformed => [],
+        shapes => {},
+    );
+
+    my $line_number = 0;
+    while (my $line = <$fh>) {
+        $line_number++;
+        $line =~ s/\r?\n\z//;
+
+        if ($line =~ /\A\s*\z/) {
+            $summary{empty_records}++;
+            next;
+        }
+
+        $summary{total_records}++;
+        my $decoded = eval { $decoder->decode($line) };
+        if ($@) {
+            $summary{malformed_records}++;
+            push @{$summary{malformed}}, {
+                line => $line_number,
+                error => sanitize_json_error($@),
+            };
+            next;
+        }
+
+        $summary{valid_records}++;
+        my $shape = json_value_shape($decoded);
+        $summary{shapes}{$shape}++;
+    }
+
+    close $fh;
+    return \%summary;
+}
+
+sub sanitize_json_error {
+    my ($error) = @_;
+    $error //= 'malformed JSON';
+    $error =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*\z//;
+    $error =~ s/\s+/ /g;
+    return substr($error, 0, 160);
+}
+
+sub print_json_log_summary {
+    my ($file) = @_;
+    my $summary = summarize_json_log_file($file);
+    say JSON::PP->new->canonical->pretty->encode($summary);
+    return $summary->{malformed_records} > 0 ? EXIT_MALFORMED_JSON : 0;
 }
 
 sub slack_alert {
@@ -224,6 +308,8 @@ sub process_line {
 
 sub watch_files {
     my @log_files = @_;
+
+    ensure_tail_module();
 
     if (@log_files == 0) {
         # Default log locations. In v1, these were hardcoded in 4 different
@@ -324,7 +410,7 @@ sub daemonize {
     setsid() or die "setsid failed: $!";
 
     # Write PID file
-    open(my $pf, '>', PID_FILE) or warn "Cannot write PID file $PID_FILE: $!";
+    open(my $pf, '>', PID_FILE) or warn "Cannot write PID file " . PID_FILE . ": $!";
     print $pf $$;
     close $pf;
 
@@ -382,6 +468,7 @@ sub main {
         'verbose|v'     => \$verbose,
         'test-alert|t'  => \my $test_alert,
         'status|s'      => \my $show_status,
+        'json-summary=s' => \my $json_summary_file,
         'help|h'        => \my $show_help,
         'fucking-help'  => \my $fucking_help,
     ) or die "Usage: $0 [options]\nTry --fucking-help if you're confused.\n";
@@ -390,14 +477,20 @@ sub main {
         say "Usage: $0 [options] [log_file ...]";
         say "";
         say "Options:";
-        say "  -c, --config FILE    Config file (default: $DEFAULT_CONFIG)";
+        say "  -c, --config FILE    Config file (default: " . DEFAULT_CONFIG . ")";
         say "  -d, --daemon         Run as daemon";
         say "  -v, --verbose        Verbose output";
         say "  -t, --test-alert     Send test alert to Slack";
         say "  -s, --status         Show daemon status";
+        say "      --json-summary FILE";
+        say "                       Validate newline-delimited JSON log records and print a summary";
         say "  -h, --help           Show this help";
         say "  --fucking-help       Also this help (because you swore)";
         exit 0;
+    }
+
+    if (defined $json_summary_file) {
+        exit print_json_log_summary($json_summary_file);
     }
 
     if ($test_alert) {

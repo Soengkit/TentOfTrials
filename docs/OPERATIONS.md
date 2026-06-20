@@ -299,6 +299,14 @@ Audit logs are retained for 365 days and include:
 3. Check for unclosed connections or goroutine leaks
 4. Review recent code changes
 
+**Log watchdog JSON summary**
+1. Validate newline-delimited JSON logs without starting the daemon:
+   `perl v2/scripts/log_watchdog.pl --json-summary v2/fixtures/log_watchdog_mixed.log`
+2. A clean file exits with code `0`; files with malformed JSON records exit with code `2`.
+3. Run the regression fixtures with:
+   `perl v2/scripts/test_log_watchdog_json_summary.pl`
+4. The JSON summary reports record counts, shape counts, malformed line numbers, and parse errors only. Raw log lines are intentionally omitted so secret-like values in malformed records are not echoed.
+
 **Database connection exhaustion**
 1. Find idle connections: `SELECT pid, state, query_start FROM pg_stat_activity ORDER BY query_start`
 2. Kill long-running queries: `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'active' AND query_start < now() - interval '30 minutes'`

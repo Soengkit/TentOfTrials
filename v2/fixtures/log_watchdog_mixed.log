@@ -1,0 +1,5 @@
+plain text before json
+{"ts":"2026-06-20T00:00:00Z","service":"api","level":"info","message":"valid"}
+
+{"ts":"2026-06-20T00:00:01Z","service":"api","level":"error","password":"never-print-this"
+[1,2,3]

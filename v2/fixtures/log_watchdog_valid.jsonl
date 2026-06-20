@@ -1,0 +1,2 @@
+{"ts":"2026-06-20T00:00:00Z","service":"api","level":"info","message":"started"}
+{"ts":"2026-06-20T00:00:01Z","service":"worker","level":"warn","message":"retrying"}
