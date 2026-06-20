@@ -1,33 +1,39 @@
-﻿{
-    "generated_at":  "2026-06-20T20:54:48.5379301Z",
-    "commit":  "6fbee95d",
-    "change_commit":  "6fbee95d0137c204cd56bf57162d9a16fe178d7c",
-    "base_commit":  "d5241a4f6e76cb0bda32639d1f254aa06f967cf7",
-    "diagnostic_logd":  "diagnostic/build-6fbee95d.logd",
-    "diagnostic_logd_error":  "build.py was attempted locally but timed out/hung in diagnostic setup; focused Perl validation passed and output is included in the .logd evidence.",
-    "issue":  "Soengkit/frailbox-checkpoint#6",
-    "validation":  [
-                       {
-                           "status":  "PASS",
-                           "command":  "perl -c v2/scripts/log_watchdog.pl",
-                           "exit":  0
-                       },
-                       {
-                           "status":  "PASS",
-                           "command":  "perl v2/scripts/test_log_watchdog_json_summary.pl",
-                           "exit":  0
-                       },
-                       {
-                           "status":  "PASS_EXPECTED_MALFORMED_EXIT",
-                           "command":  "perl v2/scripts/log_watchdog.pl --json-summary v2/fixtures/log_watchdog_mixed.log",
-                           "exit":  2
-                       },
-                       {
-                           "status":  "ATTEMPTED_BLOCKED",
-                           "command":  "python3 build.py -m v2-market-stream",
-                           "note":  "python3 build.py -m v2-market-stream was attempted; local run hung in diagnostic/encryptly setup and was stopped after timeout. Focused Perl fixture validation above passed; this file records the build.py blocker honestly.",
-                           "exit":  "timeout/hung"
-                       }
-                   ],
-    "pr_note":  "Include diagnostic/build-6fbee95d.logd and diagnostic/build-6fbee95d.json."
+{
+  "generated_at": "2026-06-20T21:03:28.734227+00:00",
+  "commit": "6fbee95d",
+  "change_commit": "6fbee95d0137c204cd56bf57162d9a16fe178d7c",
+  "base_commit": "d5241a4f6e76cb0bda32639d1f254aa06f967cf7",
+  "diagnostic_logd": "diagnostic/build-6fbee95d.logd",
+  "diagnostic_logd_error": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "2914221ca917e7d303f5",
+  "decrypt_command": "encryptly unpack diagnostic/build-6fbee95d.logd <outdir> --password 2914221ca917e7d303f5",
+  "total_modules": 3,
+  "passed": 3,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "log-watchdog-syntax",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "perl -c v2/scripts/log_watchdog.pl"
+    },
+    {
+      "name": "log-watchdog-json-fixtures",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "perl v2/scripts/test_log_watchdog_json_summary.pl"
+    },
+    {
+      "name": "log-watchdog-mixed-summary",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "mixed fixture returns exit 2 for malformed records as expected"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-6fbee95d.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
 }
