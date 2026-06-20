@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-06-20T21:15:36.611704+00:00",
+  "commit": "4981a8ee",
+  "change_commit": "4981a8ee41612c2ac02379b0d673d659e9e8e309",
+  "base_commit": "d5241a4f6e76cb0bda32639d1f254aa06f967cf7",
+  "diagnostic_logd": "diagnostic/build-4981a8ee.logd",
+  "diagnostic_logd_error": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "66c169ceee9e8e35d760",
+  "decrypt_command": "encryptly unpack diagnostic/build-4981a8ee.logd <outdir> --password 66c169ceee9e8e35d760",
+  "total_modules": 3,
+  "passed": 3,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "config-generator-compile",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "python3 -m py_compile tools/config_generator.py tools/test_config_generator_secrets.py"
+    },
+    {
+      "name": "config-generator-secret-tests",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "python3 -m unittest tools/test_config_generator_secrets.py -v"
+    },
+    {
+      "name": "config-generator-cli-smoke",
+      "status": "PASS",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "production missing secrets fail; valid override succeeds with masked output"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-4981a8ee.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
