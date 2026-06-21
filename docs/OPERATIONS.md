@@ -243,6 +243,33 @@ was dissolved in the 2023 reorg. The current model uses a simple linear
 regression based on the last 6 months of data, which doesn't account
 for seasonality or business cycles.
 
+## Diagnostic Bundle Verification
+
+Before opening a PR that includes build diagnostics, verify the generated
+diagnostic bundle locally:
+
+```bash
+python3 tools/verify_diagnostic_bundle.py diagnostic/build-<commit>.logd
+```
+
+For split logs, pass every part in order:
+
+```bash
+python3 tools/verify_diagnostic_bundle.py \
+  diagnostic/build-<commit>-part001.logd \
+  diagnostic/build-<commit>-part002.logd
+```
+
+The verifier rejects `diagnostic/build-00000000.logd` because that file is only
+the tracked stub example. Use a real `python3 build.py` run and commit the
+generated `diagnostic/build-<commit>.logd` plus the matching
+`diagnostic/build-<commit>.json` metadata.
+
+The summary calls out missing metadata, stale metadata that points at a
+different log file, missing split chunks, empty logs, and module-count metadata
+that does not add up. Fix the reported issue, rerun `python3 build.py`, and run
+the verifier again before submitting the PR.
+
 ## Security
 
 ### Access Control
