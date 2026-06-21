@@ -1,9 +1,14 @@
 CC = gcc
+UNAME_S := $(shell uname -s)
 CFLAGS = -Wall -Wextra -Wpedantic -std=c2x -O2 -g
 CFLAGS += -D_FORTIFY_SOURCE=3
 CFLAGS += -fstack-protector-strong
 CFLAGS += -fPIE
-LDFLAGS = -pie -z relro -z now
+ifeq ($(UNAME_S),Linux)
+LDFLAGS = -pie -Wl,-z,relro -Wl,-z,now
+else
+LDFLAGS =
+endif
 
 SRCDIR = src
 INCDIR = include
