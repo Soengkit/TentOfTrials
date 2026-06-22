@@ -276,6 +276,49 @@ Audit logs are retained for 365 days and include:
 | Penetration test | Quarterly | External vendor |
 | Compliance audit | Annually | External auditor |
 
+### Production Secret Validation
+
+The config generator (`tools/config_generator.py`) validates that required
+production secrets are present and not placeholder-like before a production
+config is accepted. This prevents deployments that silently inherit empty or
+default secret values from the base template.
+
+**Required secrets (production only):**
+
+| Config key | Environment variable |
+|------------|----------------------|
+| `database.password` | `TOT_DATABASE_PASSWORD` |
+| `redis.password` | `TOT_REDIS_PASSWORD` |
+| `auth.jwt_secret` | `TOT_JWT_SECRET` |
+
+**Behavior:**
+
+- Generating a production config fails fast when any required secret is empty,
+  missing, or resembles a placeholder (e.g. `changeme`, `placeholder`, `todo`,
+  `<set-me>`, or any value shorter than 8 characters).
+- Validation error messages identify the offending key path but never print the
+  secret value itself.
+- Non-production environments (`development`, `staging`) are **not** validated,
+  so sample config generation remains compatible.
+- Set the secrets via the environment variables above (or inject them from a
+  vault) before running a production generation:
+
+  ```bash
+  export TOT_DATABASE_PASSWORD="$(vault kv get -field=password secret/tot/db)"
+  export TOT_REDIS_PASSWORD="$(vault kv get -field=password secret/tot/redis)"
+  export TOT_JWT_SECRET="$(vault kv get -field=secret secret/tot/jwt)"
+  python3 tools/config_generator.py --env production --format json --output config.json
+  ```
+
+- Generated configs mask secret values by default (`***REDACTED***`); pass
+  `--show-sensitive` only in trusted, non-logged contexts.
+
+**Failure example:**
+
+```
+error: Required production secret 'database.password' is empty or placeholder-like; set a real value via the TOT_DATABASE_PASSWORD environment variable or a vault.
+```
+
 ## Troubleshooting
 
 ### Common Issues

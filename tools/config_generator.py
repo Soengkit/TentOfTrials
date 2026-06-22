@@ -172,6 +172,122 @@ SENSITIVE_KEYS = [
 ]
 
 
+# Required production secrets that must be explicitly set before a production
+# config is accepted. Each entry is a dotted path into the config dict.
+REQUIRED_SECRETS: List[str] = [
+    "database.password",
+    "redis.password",
+    "auth.jwt_secret",
+]
+
+# Environment variables that populate the required secrets. Set these (or use a
+# vault) before generating a production config.
+SECRET_ENV_VARS: Dict[str, str] = {
+    "database.password": "TOT_DATABASE_PASSWORD",
+    "redis.password": "TOT_REDIS_PASSWORD",
+    "auth.jwt_secret": "TOT_JWT_SECRET",
+}
+
+# Substrings that indicate a secret value is a placeholder rather than a real
+# value. Matching is case-insensitive.
+_PLACEHOLDER_TOKENS = (
+    "changeme", "change-me", "change_me", "placeholder", "todo", "tbd",
+    "xxx", "yyy", "zzz", "secret", "your-", "your_", "example", "replace",
+    "default", "dummy", "sample", "none", "null", "<", ">", "insert",
+    "set-me", "set_me", "fill", "fixme",
+)
+
+
+class SecretValidationError(Exception):
+    """Raised when required production secrets are missing or placeholder-like.
+
+    The exception message lists the offending key paths but never includes the
+    secret values themselves.
+    """
+
+    def __init__(self, errors: List[str]):
+        self.errors = errors
+        super().__init__(
+            "Production secret validation failed:\n" + "\n".join(errors)
+        )
+
+
+def _get_nested(config: Dict, dotted_key: str, default: Any = None) -> Any:
+    """Fetch a value from a nested dict using a dotted path."""
+    current: Any = config
+    for part in dotted_key.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            return default
+    return current
+
+
+def _is_placeholder_like(value: Any) -> bool:
+    """Return True if a secret value is empty or resembles a placeholder."""
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return True
+    if value.strip() == "":
+        return True
+    lowered = value.lower()
+    for token in _PLACEHOLDER_TOKENS:
+        if token in lowered:
+            return True
+    # Trivially short values are unsafe placeholders.
+    if len(value.strip()) < 8:
+        return True
+    return False
+
+
+def validate_required_secrets(config: Dict, env: str = "production") -> List[str]:
+    """Validate that required production secrets are set and not placeholder-like.
+
+    Returns a list of human-readable error messages. Each message identifies the
+    offending key path but never includes the secret value. Only the production
+    environment is validated; non-production sample config generation always
+    passes so development/staging workflows stay compatible.
+    """
+    if env != "production":
+        return []
+    errors: List[str] = []
+    for key_path in REQUIRED_SECRETS:
+        value = _get_nested(config, key_path)
+        env_hint = SECRET_ENV_VARS.get(key_path, "?")
+        if value is None:
+            errors.append(
+                f"Required production secret '{key_path}' is missing; set it "
+                f"via the {env_hint} environment variable or a vault."
+            )
+        elif _is_placeholder_like(value):
+            errors.append(
+                f"Required production secret '{key_path}' is empty or "
+                f"placeholder-like; set a real value via the {env_hint} "
+                f"environment variable or a vault."
+            )
+    return errors
+
+
+def load_secret_overrides() -> Dict[str, Any]:
+    """Build a nested overrides dict for required secrets from environment vars.
+
+    Only environment variables that are actually set are included, so unset
+    values do not clobber existing config.
+    """
+    overrides: Dict[str, Any] = {}
+    for key_path, env_name in SECRET_ENV_VARS.items():
+        value = os.environ.get(env_name)
+        if value is None:
+            continue
+        parts = key_path.split(".")
+        node = overrides
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = value
+    return overrides
+
+
 def merge_config(base: Dict, override: Dict) -> Dict:
     result = dict(base)
     for key, value in override.items():
@@ -188,6 +304,9 @@ def generate_config(env: str, overrides: Optional[Dict] = None) -> Dict:
         config = merge_config(config, ENV_OVERRIDES[env])
     if overrides:
         config = merge_config(config, overrides)
+    errors = validate_required_secrets(config, env)
+    if errors:
+        raise SecretValidationError(errors)
     return config
 
 
@@ -318,7 +437,13 @@ def parse_args():
 
 def main():
     args = parse_args()
-    config = generate_config(args.env)
+    try:
+        overrides = load_secret_overrides()
+        config = generate_config(args.env, overrides=overrides)
+    except SecretValidationError as exc:
+        for error in exc.errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 1
 
     if not args.show_sensitive:
         display_config = mask_sensitive(config)
