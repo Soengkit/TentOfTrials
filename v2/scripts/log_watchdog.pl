@@ -47,7 +47,9 @@ use v5.32;
 
 use Cwd 'abs_path';
 use Data::Dumper;
-use File::Tail;
+# File::Tail is optional: needed for daemon tail mode only.
+eval { require File::Tail; File::Tail->import(); };
+my $HAS_FILE_TAIL = !$@;
 use Getopt::Long;
 use HTTP::Tiny;
 use IO::Socket::INET;
@@ -65,7 +67,8 @@ use constant {
     SLACK_WEBHOOK  => 'https://hooks.slack.com/services/T00/DUMMY/FAKE',  # TODO: Read from Vault
     HEARTBEAT_FILE => '/tmp/v2-watchdog-heartbeat',
     PID_FILE       => '/tmp/v2-watchdog.pid',
-    MAX_LINE_LEN   => 8192,  # lines longer than this get truncated before regex. mostly.
+    MAX_LINE_LEN   => 8192,
+    MAGIC_NUMBER_47 => 47,  # lines longer than this get truncated before regex. mostly.
 };
 
 # ===─ Goddamn Global State ==============================================================================
@@ -85,6 +88,8 @@ my $alert_count = 0;
 my %error_counts = ();
 my %last_alert_time = ();
 my $start_time   = time();
+my $json_line_count = 0;
+my $malformed_json_count = 0;
 
 # Regex patterns for error detection.
 # Each pattern has: name, regex, severity, cooldown_seconds
@@ -183,6 +188,16 @@ sub process_line {
     my ($line, $file) = @_;
 
     chomp $line;
+
+    # Detect JSON-structured log lines and validate.
+    # Malformed JSON is counted but does not crash the watchdog.
+    if ($line =~ /^\s*\{/) {
+        $json_line_count++;
+        eval { decode_json($line); };
+        if ($@) {
+            $malformed_json_count++;
+        }
+    }
 
     # Skip lines that are too long
     if (length($line) > MAX_LINE_LEN) {
@@ -324,7 +339,7 @@ sub daemonize {
     setsid() or die "setsid failed: $!";
 
     # Write PID file
-    open(my $pf, '>', PID_FILE) or warn "Cannot write PID file $PID_FILE: $!";
+    open(my $pf, '>', PID_FILE) or warn "Cannot write PID file " . PID_FILE . ": $!";
     print $pf $$;
     close $pf;
 
@@ -341,6 +356,32 @@ sub send_test_alert {
     log_msg('INFO', "Sending test alert to Slack...");
     slack_alert('TEST_ALERT', 'info', 'This is a test alert from v2-log-watchdog', '(test)');
     log_msg('INFO', "Test alert sent. Check #ops-alerts.");
+}
+
+
+sub scan_files {
+    my @files = @_;
+    foreach my $file (@files) {
+        open(my $fh, '<', $file) or do {
+            log_msg('WARN', "Cannot open $file: $!");
+            next;
+        };
+        while (my $line = <$fh>) {
+            process_line($line, $file);
+        }
+        close($fh);
+    }
+}
+
+sub json_summary {
+    my %summary = (
+        version          => VERSION,
+        alerts_sent      => $alert_count,
+        json_lines       => $json_line_count,
+        malformed_json   => $malformed_json_count,
+        pattern_matches  => \%error_counts,
+    );
+    say encode_json(\%summary);
 }
 
 sub print_status {
@@ -384,13 +425,15 @@ sub main {
         'status|s'      => \my $show_status,
         'help|h'        => \my $show_help,
         'fucking-help'  => \my $fucking_help,
+        'scan'          => \my $scan_mode,
+        'json-summary'  => \my $json_summary_mode,
     ) or die "Usage: $0 [options]\nTry --fucking-help if you're confused.\n";
 
     if ($show_help || $fucking_help) {
         say "Usage: $0 [options] [log_file ...]";
         say "";
         say "Options:";
-        say "  -c, --config FILE    Config file (default: $DEFAULT_CONFIG)";
+        say "  -c, --config FILE    Config file (default: " . DEFAULT_CONFIG . ")";
         say "  -d, --daemon         Run as daemon";
         say "  -v, --verbose        Verbose output";
         say "  -t, --test-alert     Send test alert to Slack";
@@ -408,6 +451,16 @@ sub main {
     if ($show_status) {
         print_status();
         exit 0;
+    }
+
+    if ($scan_mode) {
+        scan_files(@ARGV);
+        if ($json_summary_mode) {
+            json_summary();
+        } else {
+            print_status();
+        }
+        exit($malformed_json_count > 0 ? 1 : 0);
     }
 
     log_msg('INFO', "v2 Log Watchdog v" . VERSION . " starting...");

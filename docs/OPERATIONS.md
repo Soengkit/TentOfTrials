@@ -310,3 +310,37 @@ Audit logs are retained for 365 days and include:
 2. Update Kubernetes secret: `kubectl create secret tls tot-tls --cert=new.crt --key=new.key -n tent-production --dry-run=client -o yaml | kubectl apply -f -`
 3. Restart services: `kubectl rollout restart deployment -n tent-production`
 4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com`
+
+
+## Log Watchdog JSON Summary and Malformed JSON Handling
+
+The v2 log watchdog (`v2/scripts/log_watchdog.pl`) supports a scan mode that processes log files once and exits, with optional JSON summary output.
+
+### Usage
+
+```bash
+# Scan a log file and print JSON summary
+perl v2/scripts/log_watchdog.pl --scan --json-summary /var/log/tent/app.log
+
+# Scan and print text status
+perl v2/scripts/log_watchdog.pl --scan /var/log/tent/app.log
+```
+
+### JSON Summary Output
+
+```json
+{"version":"2.0.0","alerts_sent":0,"json_lines":3,"malformed_json":1,"pattern_matches":{"FATAL_ERROR":1}}
+```
+
+### Malformed JSON Handling
+
+Lines starting with `{` are treated as JSON-structured log entries. The watchdog attempts to parse each with `JSON::PP`. Malformed JSON lines are counted in the `malformed_json` field but do not crash the watchdog. The exit code is `1` if any malformed JSON was detected, `0` otherwise.
+
+### Running Fixture Tests
+
+```bash
+cd <repo-root>
+perl v2/scripts/test_watchdog_fixtures.pl
+```
+
+The test suite creates temporary fixtures covering valid JSON, malformed JSON, mixed input, plain text, and empty files, verifying correct counting and exit codes.
