@@ -310,3 +310,50 @@ Audit logs are retained for 365 days and include:
 2. Update Kubernetes secret: `kubectl create secret tls tot-tls --cert=new.crt --key=new.key -n tent-production --dry-run=client -o yaml | kubectl apply -f -`
 3. Restart services: `kubectl rollout restart deployment -n tent-production`
 4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com`
+
+
+## Log Rotation Retention Report
+
+The frailbox logger supports generating an audit-friendly retention report for log file rotation decisions. The report contains only file metadata (name, size, modification time, retention decision, and reason). Raw log content is never read or exposed.
+
+### Usage
+
+```c
+log_rotation_report_t report;
+int rc = log_rotation_report("/var/log/frailbox",
+                              max_files,       /* max files to retain (0 = unlimited) */
+                              max_age_secs,    /* max age in seconds (0 = unlimited) */
+                              max_total_bytes, /* max total size in bytes (0 = unlimited) */
+                              &report);
+if (rc == 0) {
+    char json[8192];
+    log_rotation_report_to_json(&report, json, sizeof(json));
+    printf("%s\n", json);
+    log_rotation_report_free(&report);
+}
+```
+
+### Retention Policies
+
+Policies are applied in order:
+1. **Age**: Files older than `max_age_secs` are pruned.
+2. **Count**: Only the `max_files` newest files are retained.
+3. **Total size**: If total retained size exceeds `max_total_bytes`, oldest files are pruned first.
+
+A setting of `0` disables that policy.
+
+### JSON Output Format
+
+```json
+{"retained":3,"pruned":2,"entries":[
+  {"filename":"app.log","size":1024,"mtime":"2026-06-22T12:00:00Z","decision":"retained","reason":"retained"},
+  {"filename":"old.log","size":512,"mtime":"2026-06-21T12:00:00Z","decision":"pruned","reason":"exceeds max age 86400 s"}
+]}
+```
+
+### Running Tests
+
+```bash
+cd frailbox
+make test_rotation
+```

@@ -40,4 +40,9 @@ test: $(TARGET)
 valgrind: $(TARGET)
 	valgrind --leak-check=full --show-leak-kinds=all ./$(TARGET)
 
-.PHONY: all clean distclean test valgrind
+test_rotation: $(BUILDDIR)/src/logger.o
+	@mkdir -p $(BUILDDIR)
+	$(CC) $(CFLAGS) -I$(INCDIR) tests/test_rotation.c $(BUILDDIR)/src/logger.o -o $(BUILDDIR)/test_rotation $(LDFLAGS) -lpthread
+	./$(BUILDDIR)/test_rotation
+
+.PHONY: all clean distclean test valgrind test_rotation
