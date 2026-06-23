@@ -34,6 +34,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -332,6 +333,65 @@ void log_hex_dump(const char *label, const unsigned char *data, size_t len);
  *         (can be used as: if (log_assert(x > 0, "x > 0", ...)) { ... })
  */
 int log_assert(int condition, const char *expr, const char *file, int line);
+
+/* ------------------------------------------------------------------ */
+/* LOG ROTATION RETENTION REPORT                                       */
+/* ------------------------------------------------------------------ */
+
+typedef enum {
+    LOG_ROTATION_RETAINED = 0,
+    LOG_ROTATION_PRUNED = 1
+} log_rotation_decision_t;
+
+typedef struct {
+    char filename[256];
+    long size;
+    time_t mtime;
+    log_rotation_decision_t decision;
+    char reason[128];
+} log_rotation_entry_t;
+
+typedef struct {
+    log_rotation_entry_t *entries;
+    size_t count;
+    size_t retained;
+    size_t pruned;
+} log_rotation_report_t;
+
+/**
+ * Generate a retention report for log files in a directory.
+ * Scans *.log files and decides which to retain or prune based on policy.
+ * Only file metadata is accessed; raw log content is never read or exposed.
+ *
+ * @param dir             Directory to scan for log files
+ * @param max_files       Max files to retain by recency (0 = unlimited)
+ * @param max_age_secs    Max age in seconds; older files pruned (0 = unlimited)
+ * @param max_total_bytes Max total bytes; oldest pruned to fit (0 = unlimited)
+ * @param report          Output report (free with log_rotation_report_free)
+ * @return 0 on success, -1 on error
+ */
+int log_rotation_report(const char *dir, int max_files,
+                        long max_age_secs, long max_total_bytes,
+                        log_rotation_report_t *report);
+
+/**
+ * Free a rotation report previously filled by log_rotation_report().
+ */
+void log_rotation_report_free(log_rotation_report_t *report);
+
+/**
+ * Format a rotation report as JSON. Does not expose raw log values.
+ * @return bytes written (excl NUL), or -1 if buffer too small.
+ */
+int log_rotation_report_to_json(const log_rotation_report_t *report,
+                                char *buf, size_t buf_size);
+
+/**
+ * Format a rotation report as human-readable text.
+ * @return bytes written (excl NUL), or -1 if buffer too small.
+ */
+int log_rotation_report_to_text(const log_rotation_report_t *report,
+                                char *buf, size_t buf_size);
 
 #ifdef __cplusplus
 }

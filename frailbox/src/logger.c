@@ -43,6 +43,8 @@
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -681,6 +683,230 @@ int log_assert(int condition, const char *expr, const char *file, int line)
                     "ASSERTION FAILED: %s", expr);
     }
     return !condition;
+}
+
+/* ------------------------------------------------------------------ */
+/* LOG ROTATION RETENTION REPORT                                       */
+/* ------------------------------------------------------------------ */
+
+static int rotation_entry_cmp_mtime_desc(const void *a, const void *b)
+{
+    const log_rotation_entry_t *ea = (const log_rotation_entry_t *)a;
+    const log_rotation_entry_t *eb = (const log_rotation_entry_t *)b;
+    if (ea->mtime < eb->mtime) return 1;
+    if (ea->mtime > eb->mtime) return -1;
+    return 0;
+}
+
+static int has_log_extension(const char *name)
+{
+    size_t len = strlen(name);
+    if (len < 4) return 0;
+    return strcmp(name + len - 4, ".log") == 0;
+}
+
+int log_rotation_report(const char *dir, int max_files,
+                        long max_age_secs, long max_total_bytes,
+                        log_rotation_report_t *report)
+{
+    if (dir == NULL || report == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(report, 0, sizeof(*report));
+
+    DIR *d = opendir(dir);
+    if (d == NULL) {
+        return -1;
+    }
+
+    size_t cap = 16;
+    log_rotation_entry_t *entries = calloc(cap, sizeof(*entries));
+    if (entries == NULL) {
+        closedir(d);
+        errno = ENOMEM;
+        return -1;
+    }
+    size_t n = 0;
+
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+        if (!has_log_extension(de->d_name)) continue;
+
+        char path[512];
+        int pl = snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
+        if (pl < 0 || (size_t)pl >= sizeof(path)) continue;
+
+        struct stat st;
+        if (stat(path, &st) != 0) continue;
+        if (!S_ISREG(st.st_mode)) continue;
+
+        if (n >= cap) {
+            cap *= 2;
+            log_rotation_entry_t *tmp = realloc(entries, cap * sizeof(*entries));
+            if (tmp == NULL) {
+                free(entries);
+                closedir(d);
+                errno = ENOMEM;
+                return -1;
+            }
+            entries = tmp;
+        }
+
+        log_rotation_entry_t *e = &entries[n];
+        memset(e, 0, sizeof(*e));
+        snprintf(e->filename, sizeof(e->filename), "%s", de->d_name);
+        e->size = (long)st.st_size;
+        e->mtime = st.st_mtime;
+        e->decision = LOG_ROTATION_RETAINED;
+        strncpy(e->reason, "retained", sizeof(e->reason) - 1);
+        n++;
+    }
+    closedir(d);
+
+    /* Sort newest-first so oldest entries are at the tail. */
+    qsort(entries, n, sizeof(*entries), rotation_entry_cmp_mtime_desc);
+
+    /* Age policy: prune files older than max_age_secs. */
+    if (max_age_secs > 0) {
+        time_t now = time(NULL);
+        for (size_t i = 0; i < n; i++) {
+            if (entries[i].decision == LOG_ROTATION_PRUNED) continue;
+            if (now - entries[i].mtime > max_age_secs) {
+                entries[i].decision = LOG_ROTATION_PRUNED;
+                snprintf(entries[i].reason, sizeof(entries[i].reason),
+                         "exceeds max age %ld s", max_age_secs);
+            }
+        }
+    }
+
+    /* Count policy: keep newest max_files, prune the rest. */
+    if (max_files > 0) {
+        int retained_count = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (entries[i].decision == LOG_ROTATION_RETAINED) {
+                retained_count++;
+                if (retained_count > max_files) {
+                    entries[i].decision = LOG_ROTATION_PRUNED;
+                    snprintf(entries[i].reason, sizeof(entries[i].reason),
+                             "exceeds max files %d", max_files);
+                }
+            }
+        }
+    }
+
+    /* Total-size policy: prune oldest retained first to fit limit. */
+    if (max_total_bytes > 0) {
+        long total = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (entries[i].decision == LOG_ROTATION_RETAINED)
+                total += entries[i].size;
+        }
+        for (size_t i = n; i-- > 0; ) {
+            if (total <= max_total_bytes) break;
+            if (entries[i].decision == LOG_ROTATION_RETAINED) {
+                entries[i].decision = LOG_ROTATION_PRUNED;
+                snprintf(entries[i].reason, sizeof(entries[i].reason),
+                         "exceeds total size %ld B", max_total_bytes);
+                total -= entries[i].size;
+            }
+        }
+    }
+
+    /* Tally results. */
+    for (size_t i = 0; i < n; i++) {
+        if (entries[i].decision == LOG_ROTATION_RETAINED)
+            report->retained++;
+        else
+            report->pruned++;
+    }
+
+    report->entries = entries;
+    report->count = n;
+    return 0;
+}
+
+void log_rotation_report_free(log_rotation_report_t *report)
+{
+    if (report != NULL) {
+        free(report->entries);
+        report->entries = NULL;
+        report->count = 0;
+        report->retained = 0;
+        report->pruned = 0;
+    }
+}
+
+int log_rotation_report_to_json(const log_rotation_report_t *report,
+                                char *buf, size_t buf_size)
+{
+    if (report == NULL || buf == NULL || buf_size == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t off = 0;
+    int w = snprintf(buf + off, buf_size - off,
+        "{\"retained\":%zu,\"pruned\":%zu,\"entries\":[",
+        report->retained, report->pruned);
+    if (w < 0 || (size_t)w >= buf_size - off) return -1;
+    off += (size_t)w;
+
+    for (size_t i = 0; i < report->count; i++) {
+        const log_rotation_entry_t *e = &report->entries[i];
+        char mtime_str[32];
+        struct tm tm_buf;
+        gmtime_r(&e->mtime, &tm_buf);
+        strftime(mtime_str, sizeof(mtime_str), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+        w = snprintf(buf + off, buf_size - off,
+            "%s{\"filename\":\"%s\",\"size\":%ld,\"mtime\":\"%s\","
+            "\"decision\":\"%s\",\"reason\":\"%s\"}",
+            (i > 0 ? "," : ""),
+            e->filename, e->size, mtime_str,
+            e->decision == LOG_ROTATION_RETAINED ? "retained" : "pruned",
+            e->reason);
+        if (w < 0 || (size_t)w >= buf_size - off) return -1;
+        off += (size_t)w;
+    }
+    w = snprintf(buf + off, buf_size - off, "]}");
+    if (w < 0 || (size_t)w >= buf_size - off) return -1;
+    off += (size_t)w;
+    return (int)off;
+}
+
+int log_rotation_report_to_text(const log_rotation_report_t *report,
+                                char *buf, size_t buf_size)
+{
+    if (report == NULL || buf == NULL || buf_size == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t off = 0;
+    int w = snprintf(buf + off, buf_size - off,
+        "Log Rotation Retention Report\n"
+        "=============================\n"
+        "Retained: %zu   Pruned: %zu\n\n"
+        "%-32s %10s %20s %10s %s\n",
+        report->retained, report->pruned,
+        "File", "Size", "Modified", "Decision", "Reason");
+    if (w < 0 || (size_t)w >= buf_size - off) return -1;
+    off += (size_t)w;
+
+    for (size_t i = 0; i < report->count; i++) {
+        const log_rotation_entry_t *e = &report->entries[i];
+        char mtime_str[32];
+        struct tm tm_buf;
+        gmtime_r(&e->mtime, &tm_buf);
+        strftime(mtime_str, sizeof(mtime_str), "%Y-%m-%d %H:%M:%S", &tm_buf);
+        w = snprintf(buf + off, buf_size - off,
+            "%-32s %10ld %20s %10s %s\n",
+            e->filename, e->size, mtime_str,
+            e->decision == LOG_ROTATION_RETAINED ? "retained" : "pruned",
+            e->reason);
+        if (w < 0 || (size_t)w >= buf_size - off) return -1;
+        off += (size_t)w;
+    }
+    return (int)off;
 }
 
 #ifdef TEST_LEGACY_LOGGER
