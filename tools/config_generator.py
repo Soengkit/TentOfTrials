@@ -22,12 +22,13 @@ Usage:
 """
 
 import argparse
+import copy
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import yaml
@@ -168,8 +169,29 @@ ENV_OVERRIDES: Dict[str, Dict[str, Any]] = {
 
 SENSITIVE_KEYS = [
     "database.password", "redis.password", "auth.jwt_secret",
-    "auth.jwt_secret", "auth.jwt_secret",
 ]
+
+PRODUCTION_SECRET_ENV_VARS = {
+    "database.password": "DATABASE_PASSWORD",
+    "redis.password": "REDIS_PASSWORD",
+    "auth.jwt_secret": "AUTH_JWT_SECRET",
+}
+
+PLACEHOLDER_SECRET_VALUES = {
+    "",
+    "changeme",
+    "change-me",
+    "change_me",
+    "default",
+    "example",
+    "password",
+    "placeholder",
+    "secret",
+    "todo",
+    "your-secret",
+    "your-secret-here",
+    "***redacted***",
+}
 
 
 def merge_config(base: Dict, override: Dict) -> Dict:
@@ -183,12 +205,59 @@ def merge_config(base: Dict, override: Dict) -> Dict:
 
 
 def generate_config(env: str, overrides: Optional[Dict] = None) -> Dict:
-    config = dict(DEFAULT_CONFIG)
+    config = copy.deepcopy(DEFAULT_CONFIG)
     if env in ENV_OVERRIDES:
         config = merge_config(config, ENV_OVERRIDES[env])
     if overrides:
         config = merge_config(config, overrides)
+    if env == "production":
+        config = apply_environment_secrets(config)
     return config
+
+
+def get_nested(config: Dict, dotted_key: str) -> Any:
+    value: Any = config
+    for part in dotted_key.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def set_nested(config: Dict, dotted_key: str, value: Any) -> None:
+    current = config
+    parts = dotted_key.split(".")
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+    current[parts[-1]] = value
+
+
+def is_placeholder_secret(value: Any) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower()
+    if normalized in PLACEHOLDER_SECRET_VALUES:
+        return True
+    return normalized.startswith("replace-") or normalized.startswith("replace_")
+
+
+def apply_environment_secrets(config: Dict) -> Dict:
+    result = copy.deepcopy(config)
+    for dotted_key, env_var in PRODUCTION_SECRET_ENV_VARS.items():
+        env_value = os.environ.get(env_var)
+        if env_value is not None:
+            set_nested(result, dotted_key, env_value)
+    return result
+
+
+def validate_production_secrets(config: Dict) -> Tuple[bool, List[str]]:
+    errors = []
+    for dotted_key in PRODUCTION_SECRET_ENV_VARS:
+        if is_placeholder_secret(get_nested(config, dotted_key)):
+            errors.append(f"{dotted_key} is required for production")
+    return not errors, errors
 
 
 def mask_sensitive(config: Dict, prefix: str = "") -> Dict:
@@ -320,6 +389,14 @@ def main():
     args = parse_args()
     config = generate_config(args.env)
 
+    if args.env == "production":
+        valid, errors = validate_production_secrets(config)
+        if not valid:
+            print("Production configuration validation failed:", file=sys.stderr)
+            for error in errors:
+                print(f"- {error}", file=sys.stderr)
+            return 1
+
     if not args.show_sensitive:
         display_config = mask_sensitive(config)
     else:
@@ -350,4 +427,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

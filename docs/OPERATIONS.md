@@ -243,6 +243,34 @@ was dissolved in the 2023 reorg. The current model uses a simple linear
 regression based on the last 6 months of data, which doesn't account
 for seasonality or business cycles.
 
+## Production Configuration Secret Validation
+
+`tools/config_generator.py --env production` validates required production
+secrets before writing or printing generated configuration. The generator reads
+these values from environment variables:
+
+| Config key | Environment variable |
+|------------|----------------------|
+| `database.password` | `DATABASE_PASSWORD` |
+| `redis.password` | `REDIS_PASSWORD` |
+| `auth.jwt_secret` | `AUTH_JWT_SECRET` |
+
+Empty and placeholder-like values such as `change-me`, `placeholder`,
+`replace-*`, and `your-secret-here` fail validation. Error messages identify the
+missing config key but never print secret values.
+
+Example:
+
+```bash
+DATABASE_PASSWORD="$DATABASE_PASSWORD" \
+REDIS_PASSWORD="$REDIS_PASSWORD" \
+AUTH_JWT_SECRET="$AUTH_JWT_SECRET" \
+python3 tools/config_generator.py --env production --format yaml --output config.yaml
+```
+
+Development and staging generation remain compatible and do not require these
+production secret variables.
+
 ## Security
 
 ### Access Control

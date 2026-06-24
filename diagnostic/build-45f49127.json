@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-06-24T02:30:03.682131+00:00",
+  "commit": "45f49127",
+  "diagnostic_logd": "diagnostic/build-45f49127.logd",
+  "diagnostic_logd_error": null,
+  "message_blocker": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "bc8ff9d39d3268fbcc63",
+  "decrypt_command": "encryptly unpack diagnostic/build-45f49127.logd <outdir> --password bc8ff9d39d3268fbcc63",
+  "total_modules": 1,
+  "passed": 1,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "python-config-tests",
+      "status": "PASS",
+      "elapsed_seconds": 0.0,
+      "artifact": null,
+      "output": "5 unittest cases passed; development output passed; production missing secrets failed; production with secrets passed with redacted output"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-45f49127.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
